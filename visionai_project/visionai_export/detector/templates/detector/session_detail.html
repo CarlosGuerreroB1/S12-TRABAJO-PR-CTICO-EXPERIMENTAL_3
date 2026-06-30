@@ -1,0 +1,71 @@
+{% extends 'detector/base.html' %}
+{% block title %}Sesión #{{ session.pk }} — VisionAI{% endblock %}
+
+{% block extra_css %}
+<style>
+  .detail-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem; }
+  .meta-item { padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+  .meta-item:last-child { border-bottom: none; }
+  .meta-key { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .meta-val { font-size: 1rem; font-weight: 500; margin-top: 2px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+  <a href="{% url 'detector:history' %}" class="btn btn-secondary btn-sm">← Volver</a>
+  <h2 style="font-size: 1.4rem; font-weight: 700;">Sesión #{{ session.pk }}</h2>
+  {% if session.is_active %}
+    <span class="badge badge-green pulse">● Activa</span>
+  {% else %}
+    <span class="badge badge-red">Cerrada</span>
+  {% endif %}
+</div>
+
+<div class="detail-grid">
+  <div class="card">
+    <div class="card-title">Metadatos de sesión</div>
+    <div class="meta-item">
+      <div class="meta-key">Tipo de detección</div>
+      <div class="meta-val">{{ session.get_detection_type_display }}</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-key">Inicio</div>
+      <div class="meta-val">{{ session.started_at|date:"d/m/Y H:i:s" }}</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-key">Fin</div>
+      <div class="meta-val">{{ session.ended_at|date:"d/m/Y H:i:s"|default:"En progreso" }}</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-key">Total detectado</div>
+      <div class="meta-val" style="font-size: 2rem; color: var(--accent); font-family: var(--mono);">{{ session.total_detections }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Últimos eventos (50)</div>
+    {% if events %}
+    <table>
+      <thead>
+        <tr><th>Hora</th><th>Objeto</th><th>Confianza</th><th>Posición</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td style="font-family: var(--mono); font-size: 0.8rem;">{{ e.detected_at|date:"H:i:s" }}</td>
+          <td><span class="badge badge-green">{{ e.object_label }}</span></td>
+          <td style="font-family: var(--mono);">{{ e.confidence|floatformat:0 }}%</td>
+          <td style="font-family: var(--mono); font-size: 0.75rem; color: var(--muted);">
+            x:{{ e.bbox_x }} y:{{ e.bbox_y }} w:{{ e.bbox_w }} h:{{ e.bbox_h }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--muted); text-align: center; padding: 2rem;">No hay eventos registrados en esta sesión.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
