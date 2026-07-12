@@ -1,0 +1,156 @@
+{% extends 'detector/base.html' %}
+{% block title %}Dashboard — VisionAI{% endblock %}
+
+{% block extra_css %}
+<style>
+  .hero {
+    background: linear-gradient(135deg, rgba(0,229,160,0.08) 0%, rgba(0,144,255,0.05) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+  }
+  .hero h1 { font-size: 2rem; font-weight: 700; letter-spacing: -1px; }
+  .hero h1 span { color: var(--accent); }
+  .hero p { color: var(--muted); margin-top: 0.5rem; font-size: 1rem; }
+  .hero-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem; }
+  .quick-start {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+  }
+  .qs-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem;
+    cursor: pointer; transition: all 0.2s; text-align: center;
+    text-decoration: none; color: var(--text);
+    display: block;
+  }
+  .qs-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .qs-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+  .qs-label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+  .chart-bar-wrap { display: flex; align-items: flex-end; gap: 4px; height: 80px; margin-top: 1rem; }
+  .chart-bar { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 4px; opacity: 0.7; position: relative; transition: opacity 0.2s; }
+  .chart-bar:hover { opacity: 1; }
+  .chart-bar span { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 0.6rem; color: var(--muted); white-space: nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+  <div>
+    <h1>Detección de objetos<br><span>en tiempo real</span></h1>
+    <p>Usa tu cámara para detectar rostros, mascarillas, cascos y más con OpenCV.</p>
+    <div class="hero-actions">
+      <a href="{% url 'detector:live' %}" class="btn btn-primary">▶ Iniciar Cámara</a>
+      <a href="{% url 'detector:history' %}" class="btn btn-secondary">Ver Historial</a>
+    </div>
+  </div>
+  <div style="font-size: 6rem; opacity: 0.3; user-select: none;">👁</div>
+</div>
+
+<!-- Stats -->
+<div class="stat-grid" style="margin-bottom: 1.5rem;">
+  <div class="stat-card">
+    <div class="stat-value" style="color: var(--accent);">{{ total_sessions }}</div>
+    <div class="stat-label">Sesiones totales</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color: var(--accent2);">{{ total_detections }}</div>
+    <div class="stat-label">Detecciones registradas</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color: var(--warn);" id="live-count">{{ active_sessions }}</div>
+    <div class="stat-label">Sesiones activas ahora</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color: var(--text); font-size: 1.4rem;" id="live-time">--:--:--</div>
+    <div class="stat-label">Hora local</div>
+  </div>
+</div>
+
+<div class="grid2">
+  <!-- Inicio rápido -->
+  <div class="card">
+    <div class="card-title">Inicio rápido por tipo</div>
+    <div class="quick-start">
+      {% for value, label in detection_types %}
+      <a href="{% url 'detector:live' %}?type={{ value }}" class="qs-card">
+        <div class="qs-icon">
+          {% if value == 'face' %}🧑{% elif value == 'mask' %}😷{% elif value == 'helmet' %}⛑️{% elif value == 'phone' %}📱{% else %}🚶{% endif %}
+        </div>
+        <div class="qs-label">{{ label }}</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Sesiones recientes -->
+  <div class="card">
+    <div class="card-title">Sesiones recientes</div>
+    {% if recent_sessions %}
+    <table>
+      <thead><tr><th>#</th><th>Tipo</th><th>Detecciones</th><th>Estado</th></tr></thead>
+      <tbody>
+        {% for s in recent_sessions %}
+        <tr>
+          <td><a href="{% url 'detector:session_detail' s.pk %}" style="color: var(--accent2);">#{{ s.pk }}</a></td>
+          <td>{{ s.get_detection_type_display }}</td>
+          <td><span style="font-family: var(--mono);">{{ s.total_detections }}</span></td>
+          <td>
+            {% if s.is_active %}
+              <span class="badge badge-green pulse">● Activa</span>
+            {% else %}
+              <span class="badge badge-red">Cerrada</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--muted); text-align: center; padding: 2rem;">
+      Aún no hay sesiones. <a href="{% url 'detector:live' %}" style="color: var(--accent);">¡Inicia una!</a>
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Gráfica últimos 7 días -->
+<div class="card" style="margin-top: 1.5rem;">
+  <div class="card-title">Detecciones — últimos 7 días</div>
+  <div class="chart-bar-wrap" id="chart7"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Reloj
+  setInterval(() => {
+    document.getElementById('live-time').textContent =
+      new Date().toLocaleTimeString('es-EC');
+  }, 1000);
+
+  // Gráfica
+  fetch('/api/stats/').then(r => r.json()).then(data => {
+    const wrap = document.getElementById('chart7');
+    const vals = data.last_7_days.map(d => d.count);
+    const max = Math.max(...vals, 1);
+    vals.forEach((v, i) => {
+      const bar = document.createElement('div');
+      bar.className = 'chart-bar';
+      bar.style.height = `${(v / max) * 100}%`;
+      bar.title = `${data.last_7_days[i].date}: ${v} detecciones`;
+      const label = document.createElement('span');
+      const d = new Date(data.last_7_days[i].date);
+      label.textContent = d.toLocaleDateString('es-EC', { weekday: 'short' });
+      bar.appendChild(label);
+      wrap.appendChild(bar);
+    });
+  });
+</script>
+{% endblock %}

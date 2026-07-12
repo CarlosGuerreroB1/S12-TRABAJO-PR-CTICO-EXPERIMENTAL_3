@@ -1,0 +1,341 @@
+{% extends 'detector/base.html' %}
+{% block title %}Cámara en Vivo — VisionAI{% endblock %}
+
+{% block extra_css %}
+<style>
+  .live-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .video-container {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 2px solid var(--border);
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #local-video {
+    width: 100%; height: 100%;
+    object-fit: cover; display: none;
+    border-radius: var(--radius);
+  }
+  #result-img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: none;
+    border-radius: var(--radius);
+    position: absolute; top: 0; left: 0;
+  }
+  .video-placeholder {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 1rem; color: var(--muted);
+    padding: 2rem; text-align: center;
+  }
+  .video-placeholder .icon { font-size: 4rem; opacity: 0.3; }
+  .live-badge {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(255,64,96,0.9); color: white;
+    padding: 4px 12px; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 700;
+    letter-spacing: 1px; display: none;
+    align-items: center; gap: 6px; z-index: 10;
+  }
+  .live-badge.visible { display: flex; }
+  .rec-dot { width: 8px; height: 8px; background: white; border-radius: 50%; animation: pulse 1s infinite; }
+  .controls-panel { display: flex; flex-direction: column; gap: 1rem; }
+  .control-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 6px; }
+  .type-select { width: 100%; }
+  .btn-row { display: flex; gap: 0.75rem; }
+  .btn-row .btn { flex: 1; justify-content: center; }
+  .detection-log {
+    background: var(--surface2); border-radius: 10px;
+    padding: 1rem; max-height: 260px; overflow-y: auto;
+    font-family: var(--mono); font-size: 0.78rem;
+  }
+  .log-entry {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 0; border-bottom: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .log-entry .label { color: var(--accent); }
+  .counter-display {
+    font-size: 3rem; font-weight: 700;
+    font-family: var(--mono); color: var(--accent);
+    text-align: center; line-height: 1;
+  }
+  .counter-sub { text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+  .step-indicator {
+    display: flex; gap: 8px; align-items: center;
+    font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem;
+  }
+  .step { 
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--surface2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700; flex-shrink: 0;
+  }
+  .step.done { background: var(--accent); color: #000; border-color: var(--accent); }
+  .step.active { border-color: var(--accent2); color: var(--accent2); }
+  .camera-error {
+    background: rgba(255,64,96,0.1); border: 1px solid var(--danger);
+    border-radius: 10px; padding: 1rem; font-size: 0.85rem;
+    color: var(--danger); display: none; margin-top: 0.5rem;
+  }
+  #canvas-hidden { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+  <div>
+    <h2 style="font-size: 1.4rem; font-weight: 700;">Cámara en Vivo</h2>
+    <p style="color: var(--muted); font-size: 0.9rem;">Detección en tiempo real con OpenCV</p>
+  </div>
+  <span class="badge badge-green pulse" id="session-badge" style="display:none;">● Sesión activa</span>
+</div>
+
+<div class="live-layout">
+  <!-- Video -->
+  <div>
+    <div class="video-container" id="video-wrap">
+      <div class="video-placeholder" id="placeholder">
+        <div class="icon">📷</div>
+        <p>Primero activa tu cámara con el<br>botón <strong>"Activar Cámara"</strong> del panel derecho</p>
+      </div>
+      <!-- Video local (lo que capta la cámara) -->
+      <video id="local-video" autoplay playsinline muted></video>
+      <!-- Imagen con detecciones de OpenCV encima -->
+      <img id="result-img" alt="Detecciones OpenCV">
+      <div class="live-badge" id="live-badge">
+        <div class="rec-dot"></div> DETECTANDO
+      </div>
+    </div>
+
+    <canvas id="canvas-hidden" width="640" height="480"></canvas>
+
+    <div id="camera-error" class="camera-error">
+      ❌ <strong>No se pudo acceder a la cámara.</strong><br>
+      Verifica que Chrome tenga permiso: haz clic en el ícono 🔒 o 📷 en la barra de dirección → Permitir cámara → Recargar.
+    </div>
+  </div>
+
+  <!-- Panel de control -->
+  <div class="controls-panel">
+
+    <!-- Paso 1: activar cámara -->
+    <div class="card">
+      <div class="step-indicator">
+        <div class="step" id="step1-dot">1</div>
+        <span>Activar cámara</span>
+      </div>
+      <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 1rem;">
+        Haz clic aquí primero. Chrome pedirá permiso de cámara.
+      </p>
+      <button class="btn btn-secondary" id="btn-camera" onclick="activateCamera()" style="width:100%; justify-content:center;">
+        📷 Activar Cámara
+      </button>
+    </div>
+
+    <!-- Paso 2: tipo y sesión -->
+    <div class="card">
+      <div class="step-indicator">
+        <div class="step" id="step2-dot">2</div>
+      </div>
+      <select class="type-select" id="detection-type">
+        {% for value, label in detection_types %}
+        <option value="{{ value }}" {% if value == detection_type %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <div style="margin-top: 1rem;" class="btn-row">
+        <button class="btn btn-primary" id="btn-start" onclick="startDetection()" disabled>▶ Iniciar</button>
+        <button class="btn btn-danger" id="btn-stop" onclick="stopDetection()" style="display:none;">⏹ Detener</button>
+      </div>
+    </div>
+
+    <!-- Contador -->
+    <div class="card" style="text-align:center;">
+      <div class="card-title">Detecciones en sesión</div>
+      <div class="counter-display" id="counter">0</div>
+      <div class="counter-sub" id="session-duration">Sin sesión activa</div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="card-title">Registro de eventos</div>
+      <div class="detection-log" id="log">
+        <div style="color:var(--muted); text-align:center; padding:1rem;">Sin eventos aún</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let sessionId = null;
+let sessionStart = null;
+let totalCount = 0;
+let captureInterval = null;
+let timerInterval = null;
+let mediaStream = null;
+let cameraReady = false;
+let detecting = false;
+
+// ── PASO 1: Activar cámara ──────────────────────────────────────────
+async function activateCamera() {
+  const btn = document.getElementById('btn-camera');
+  const errDiv = document.getElementById('camera-error');
+  errDiv.style.display = 'none';
+  btn.textContent = '⏳ Solicitando permiso...';
+  btn.disabled = true;
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+      audio: false
+    });
+
+    const videoEl = document.getElementById('local-video');
+    videoEl.srcObject = mediaStream;
+    videoEl.style.display = 'block';
+    document.getElementById('placeholder').style.display = 'none';
+
+    cameraReady = true;
+    btn.textContent = '✅ Cámara activa';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+
+    // Marcar paso 1 como hecho
+    const s1 = document.getElementById('step1-dot');
+    s1.classList.add('done');
+    s1.textContent = '✓';
+
+    // Habilitar botón iniciar
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('step2-dot').classList.add('active');
+
+  } catch(e) {
+    btn.textContent = '📷 Activar Cámara';
+    btn.disabled = false;
+    errDiv.style.display = 'block';
+    console.error('Camera error:', e);
+  }
+}
+
+// ── PASO 2: Iniciar sesión y detección ─────────────────────────────
+async function startDetection() {
+  if (!cameraReady) { showToast('Primero activa la cámara', 'error'); return; }
+
+  const dtype = document.getElementById('detection-type').value;
+
+  const res = await fetch('/api/start-session/', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ detection_type: dtype })
+  });
+  const data = await res.json();
+  sessionId = data.session_id;
+  sessionStart = new Date();
+  totalCount = 0;
+  detecting = true;
+
+  // UI
+  document.getElementById('btn-start').style.display = 'none';
+  document.getElementById('btn-stop').style.display = 'flex';
+  document.getElementById('session-badge').style.display = 'inline-flex';
+  document.getElementById('live-badge').classList.add('visible');
+  document.getElementById('log').innerHTML = '';
+
+  // Timer
+  timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - sessionStart) / 1000);
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    document.getElementById('session-duration').textContent =
+      `Duración: ${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }, 1000);
+
+  // Iniciar captura periódica
+  const canvas = document.getElementById('canvas-hidden');
+  const ctx = canvas.getContext('2d');
+  const videoEl = document.getElementById('local-video');
+  const resultImg = document.getElementById('result-img');
+
+  captureInterval = setInterval(async () => {
+    if (!detecting) return;
+    ctx.drawImage(videoEl, 0, 0, 640, 480);
+    const b64 = canvas.toDataURL('image/jpeg', 0.85);
+
+    try {
+      const r = await fetch('/api/capture/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: b64, detection_type: dtype, session_id: sessionId })
+      });
+      const d = await r.json();
+
+      if (d.annotated_image) {
+        // Mostrar imagen procesada por OpenCV encima del video
+        resultImg.src = d.annotated_image;
+        resultImg.style.display = 'block';
+        videoEl.style.opacity = '0';  // ocultar video original, mostrar el anotado
+      }
+      if (d.count > 0) {
+        totalCount += d.count;
+        document.getElementById('counter').textContent = totalCount;
+        logDetections(d.detections);
+      }
+    } catch(e) { /* continuar */ }
+  }, 600);
+
+  showToast('Sesión #' + sessionId + ' iniciada', 'success');
+}
+
+// ── Detener ─────────────────────────────────────────────────────────
+async function stopDetection() {
+  if (!sessionId) return;
+  detecting = false;
+
+  if (captureInterval) { clearInterval(captureInterval); captureInterval = null; }
+  if (timerInterval)   { clearInterval(timerInterval);  timerInterval = null; }
+
+  // Restaurar video en vivo
+  document.getElementById('result-img').style.display = 'none';
+  document.getElementById('local-video').style.opacity = '1';
+  document.getElementById('live-badge').classList.remove('visible');
+  document.getElementById('session-badge').style.display = 'none';
+  document.getElementById('btn-start').style.display = 'flex';
+  document.getElementById('btn-stop').style.display = 'none';
+  document.getElementById('session-duration').textContent = 'Sin sesión activa';
+
+  const res = await fetch('/api/stop-session/', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId })
+  });
+  const data = await res.json();
+  showToast(`Sesión finalizada · ${data.total} detección(es)`, 'success');
+  sessionId = null;
+}
+
+// ── Log ─────────────────────────────────────────────────────────────
+function logDetections(detections) {
+  const log = document.getElementById('log');
+  if (log.querySelector('[style]')) log.innerHTML = '';
+  detections.forEach(det => {
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = `<div class="dot"></div><span class="label">${det.label}</span>&nbsp;conf: ${(det.confidence*100).toFixed(0)}%`;
+    log.prepend(entry);
+  });
+  while (log.children.length > 30) log.removeChild(log.lastChild);
+}
+</script>
+{% endblock %}
